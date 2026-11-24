@@ -1,0 +1,6 @@
+GolfSwing.xcodeproj/
+build/
+Payload/
+*.ipa
+__pycache__/
+.DS_Store
