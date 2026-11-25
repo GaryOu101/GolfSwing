@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="GolfSwing">
+<meta name="theme-color" content="#0f1412">
+<title>GolfSwing · Rotation test</title>
+<style>
+  :root { --bg:#0f1412; --card:#18201c; --line:#2a3530; --text:#eef3ef; --muted:#93a39a; --accent:#4cc38a; --amber:#f2b33d; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+         padding: max(16px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom)); max-width: 560px; margin-inline:auto; }
+  h1 { font-size:24px; margin:0 0 2px; }
+  h2 { font-size:18px; margin:24px 0 8px; }
+  #status { color:var(--muted); margin:0 0 12px; min-height:1.5em; }
+  .instructions { color:var(--muted); font-size:14px; margin:8px 0 12px; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; }
+  .seg { display:flex; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:3px; flex:1; }
+  .seg button { flex:1; background:none; border:0; color:var(--muted); padding:8px; border-radius:8px; font:inherit; font-size:14px; }
+  .seg button.on { background:var(--line); color:var(--text); }
+  .stage { position:relative; width:100%; aspect-ratio:3/4; background:#000; border-radius:14px; overflow:hidden; }
+  .stage video, .stage canvas { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; }
+  .stage.mirror video, .stage.mirror canvas { transform:scaleX(-1); }
+  .overlay { position:absolute; inset:0; display:grid; place-items:center; color:var(--muted); text-align:center; padding:24px; }
+  .readouts { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:12px 0; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px 12px; }
+  .card span { display:block; color:var(--muted); font-size:13px; }
+  .card b { display:block; font-size:34px; font-variant-numeric:tabular-nums; line-height:1.2; }
+  .card small { color:var(--muted); font-size:14px; }
+  .card small span { display:inline; color:var(--text); font-size:14px; font-weight:600; }
+  .buttons { display:flex; gap:8px; }
+  button.btn { flex:1; font:inherit; font-weight:600; padding:12px; border-radius:12px; border:1px solid var(--line); background:var(--card); color:var(--text); }
+  button.btn.primary { background:var(--accent); border-color:var(--accent); color:#06291a; }
+  button.btn:disabled { opacity:.4; }
+  label { display:block; color:var(--muted); font-size:14px; margin-bottom:8px; }
+  input { display:block; width:100%; margin-top:4px; padding:10px 12px; font:inherit; color:var(--text); background:var(--card); border:1px solid var(--line); border-radius:10px; }
+  table { width:100%; border-collapse:collapse; margin:12px 0; font-size:14px; font-variant-numeric:tabular-nums; }
+  th, td { text-align:left; padding:6px 4px; border-bottom:1px solid var(--line); }
+  th { color:var(--muted); font-weight:500; }
+  .note { color:var(--muted); font-size:13px; }
+</style>
+</head>
+<body>
+  <h1>Rotation test</h1>
+  <p id="status">Tap Start camera to begin.</p>
+
+  <div class="row">
+    <div class="seg" id="testSeg">
+      <button data-test="trunk" class="on">Trunk</button>
+      <button data-test="pelvis">Pelvis</button>
+    </div>
+    <div class="seg" id="camSeg">
+      <button data-cam="user" class="on">Front cam</button>
+      <button data-cam="environment">Back cam</button>
+    </div>
+  </div>
+  <p class="instructions" id="instructions"></p>
+
+  <div class="stage mirror" id="stage">
+    <video id="video" playsinline muted autoplay></video>
+    <canvas id="canvas"></canvas>
+    <div class="overlay" id="overlay">Camera off</div>
+  </div>
+
+  <div class="readouts">
+    <div class="card"><span>2D width method</span><b id="cur2d">--</b><small>max <span id="max2d">--</span></small></div>
+    <div class="card"><span>3D depth method</span><b id="cur3d">--</b><small>max <span id="max3d">--</span></small></div>
+  </div>
+
+  <div class="buttons">
+    <button class="btn primary" id="startBtn">Start camera</button>
+    <button class="btn" id="baselineBtn" disabled>Set baseline</button>
+    <button class="btn" id="resetBtn" disabled>Reset max</button>
+  </div>
+
+  <h2>Log a result</h2>
+  <label>Goniometer reading in degrees (optional)
+    <input id="gonio" type="number" inputmode="decimal" placeholder="e.g. 48">
+  </label>
+  <div class="buttons"><button class="btn" id="logBtn" disabled>Save result</button></div>
+  <table>
+    <thead><tr><th>Time</th><th>Test</th><th>2D</th><th>3D</th><th>Gonio</th></tr></thead>
+    <tbody id="logBody"></tbody>
+  </table>
+  <div class="buttons">
+    <button class="btn" id="copyBtn">Copy CSV</button>
+    <button class="btn" id="clearBtn">Clear log</button>
+  </div>
+  <p class="note">Results stay in this browser only. Copy the CSV to keep them.</p>
+
+<script type="module">
+import { PoseLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
+
+const WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
+const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task";
+
+// MediaPipe landmark indices: 11/12 shoulders, 23/24 hips.
+const TESTS = {
+  trunk:  { name: "Trunk",  joints: [11, 12], text: "Prop the phone about 2 m away. Stand facing it in golf posture with arms crossed on your chest. Tap Set baseline, then turn your shoulders as far as you can, keeping your hips still." },
+  pelvis: { name: "Pelvis", joints: [23, 24], text: "Prop the phone about 2 m away. Stand facing it in golf posture. Tap Set baseline, then rotate your hips as far as you can, keeping your shoulders still." },
+};
+const BONES = [[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24],[23,25],[25,27],[24,26],[26,28]];
+const ALPHA = 0.3;            // smoothing factor for the readouts
+const BASELINE_FRAMES = 10;   // frames averaged when setting the baseline
+const LOG_KEY = "golfswing-rotation-log";
+
+const $ = (id) => document.getElementById(id);
+const video = $("video"), canvas = $("canvas"), ctx = canvas.getContext("2d");
+
+let landmarker = null, stream = null, running = false;
+let test = "trunk", facing = "user";
+let recent = [], baseline = null;
+let smooth2d = null, smooth3d = null, max2d = 0, max3d = 0, lastVideoTime = -1;
+let log = loadLog();
+
+const setStatus = (t) => { $("status").textContent = t; };
+const wrap = (d) => ((d + 540) % 360) - 180;
+const fmt = (v) => (v == null ? "--" : `${Math.round(v)}°`);
+
+function opts(delegate) {
+  return {
+    baseOptions: { modelAssetPath: MODEL_URL, delegate },
+    runningMode: "VIDEO",
+    numPoses: 1,
+    minPoseDetectionConfidence: 0.5,
+    minTrackingConfidence: 0.5,
+  };
+}
+
+async function loadModel() {
+  if (landmarker) return;
+  setStatus("Loading pose model (a few MB the first time)…");
+  const vision = await FilesetResolver.forVisionTasks(WASM_URL);
+  try {
+    landmarker = await PoseLandmarker.createFromOptions(vision, opts("GPU"));
+  } catch {
+    landmarker = await PoseLandmarker.createFromOptions(vision, opts("CPU"));
+  }
+}
+
+function stopCamera() {
+  running = false;
+  if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; }
+}
+
+async function startCamera() {
+  $("startBtn").disabled = true;
+  try {
+    await loadModel();
+    stopCamera();
+    setStatus("Starting camera…");
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: facing, width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: false,
+    });
+    video.srcObject = stream;
+    await video.play();
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    $("stage").style.aspectRatio = `${video.videoWidth} / ${video.videoHeight}`;
+    $("stage").classList.toggle("mirror", facing === "user");
+    $("overlay").hidden = true;
+    ["baselineBtn", "resetBtn", "logBtn"].forEach((id) => ($(id).disabled = false));
+    $("startBtn").textContent = "Restart camera";
+    clearMeasurement();
+    running = true;
+    setStatus("Face the camera so your whole upper body is visible, then tap Set baseline.");
+    requestAnimationFrame(loop);
+  } catch (e) {
+    setStatus(`Could not start: ${e.message}. Check camera permission for this site.`);
+  } finally {
+    $("startBtn").disabled = false;
+  }
+}
+
+function measure(result) {
+  const lm = result.landmarks?.[0];
+  const wl = result.worldLandmarks?.[0];
+  if (!lm || !wl) return null;
+  const [a, b] = TESTS[test].joints;
+  if ((lm[a].visibility ?? 1) < 0.5 || (lm[b].visibility ?? 1) < 0.5) return null;
+  // Method 1: on-screen width shrinks by cos(angle) as the body rotates.
+  const width = Math.hypot((lm[a].x - lm[b].x) * video.videoWidth, (lm[a].y - lm[b].y) * video.videoHeight);
+  // Method 2: MediaPipe's estimated 3D landmarks give the joint line's yaw directly.
+  const yaw = Math.atan2(wl[a].z - wl[b].z, wl[a].x - wl[b].x) * 180 / Math.PI;
+  return { width, yaw };
+}
+
+function loop() {
+  if (!running) return;
+  if (video.readyState >= 2 && video.currentTime !== lastVideoTime) {
+    lastVideoTime = video.currentTime;
+    const result = landmarker.detectForVideo(video, performance.now());
+    draw(result.landmarks?.[0]);
+    const m = measure(result);
+    if (m) {
+      recent.push(m);
+      if (recent.length > BASELINE_FRAMES) recent.shift();
+      if (baseline) update(m);
+    }
+  }
+  requestAnimationFrame(loop);
+}
+
+function update(m) {
+  const ratio = Math.min(1, m.width / baseline.width);
+  const a2d = Math.acos(ratio) * 180 / Math.PI;
+  const a3d = Math.abs(wrap(m.yaw - baseline.yaw));
+  smooth2d = smooth2d == null ? a2d : smooth2d + ALPHA * (a2d - smooth2d);
+  smooth3d = smooth3d == null ? a3d : smooth3d + ALPHA * (a3d - smooth3d);
+  max2d = Math.max(max2d, smooth2d);
+  max3d = Math.max(max3d, smooth3d);
+  render();
+}
+
+function render() {
+  $("cur2d").textContent = fmt(smooth2d);
+  $("cur3d").textContent = fmt(smooth3d);
+  $("max2d").textContent = baseline ? fmt(max2d) : "--";
+  $("max3d").textContent = baseline ? fmt(max3d) : "--";
+}
+
+function draw(lm) {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (!lm) return;
+  const W = canvas.width, H = canvas.height;
+  const [ja, jb] = TESTS[test].joints;
+  ctx.lineWidth = Math.max(3, W / 250);
+  for (const [a, b] of BONES) {
+    if ((lm[a].visibility ?? 1) < 0.5 || (lm[b].visibility ?? 1) < 0.5) continue;
+    const key = (a === ja && b === jb);
+    ctx.strokeStyle = key ? "#f2b33d" : "#4cc38a";
+    ctx.beginPath();
+    ctx.moveTo(lm[a].x * W, lm[a].y * H);
+    ctx.lineTo(lm[b].x * W, lm[b].y * H);
+    ctx.stroke();
+  }
+  for (const i of new Set(BONES.flat())) {
+    if ((lm[i].visibility ?? 1) < 0.5) continue;
+    const key = (i === ja || i === jb);
+    ctx.fillStyle = key ? "#f2b33d" : "#eef3ef";
+    ctx.beginPath();
+    ctx.arc(lm[i].x * W, lm[i].y * H, key ? W / 90 : W / 160, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function clearMeasurement() {
+  baseline = null; recent = [];
+  smooth2d = smooth3d = null; max2d = max3d = 0;
+  render();
+}
+
+function setBaseline() {
+  if (recent.length < 3) { setStatus("No pose detected yet. Step back so your full upper body is visible."); return; }
+  const n = recent.length;
+  baseline = {
+    width: recent.reduce((s, m) => s + m.width, 0) / n,
+    yaw: recent.reduce((s, m) => s + m.yaw, 0) / n,
+  };
+  smooth2d = smooth3d = null; max2d = max3d = 0;
+  render();
+  setStatus(`Baseline set. Now rotate your ${test === "trunk" ? "shoulders" : "hips"} as far as you can.`);
+}
+
+function loadLog() {
+  try { return JSON.parse(localStorage.getItem(LOG_KEY)) || []; } catch { return []; }
+}
+function saveLog() {
+  try { localStorage.setItem(LOG_KEY, JSON.stringify(log)); } catch { /* storage unavailable */ }
+}
+function renderLog() {
+  $("logBody").innerHTML = log.map((r) =>
+    `<tr><td>${new Date(r.time).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</td>` +
+    `<td>${r.test}</td><td>${fmt(r.max2d)}</td><td>${fmt(r.max3d)}</td><td>${r.gonio == null ? "--" : r.gonio + "°"}</td></tr>`
+  ).join("");
+}
+
+function saveResult() {
+  if (!baseline) { setStatus("Set a baseline and rotate first."); return; }
+  const g = parseFloat($("gonio").value);
+  log.unshift({
+    time: Date.now(), test: TESTS[test].name,
+    max2d: Math.round(max2d), max3d: Math.round(max3d),
+    gonio: Number.isFinite(g) ? g : null,
+  });
+  saveLog(); renderLog();
+  $("gonio").value = "";
+  setStatus("Saved. Set a new baseline to measure again.");
+}
+
+async function copyCSV() {
+  const rows = [["time", "test", "method_2d_deg", "method_3d_deg", "goniometer_deg"],
+    ...log.map((r) => [new Date(r.time).toISOString(), r.test, r.max2d, r.max3d, r.gonio ?? ""])];
+  const csv = rows.map((r) => r.join(",")).join("\n");
+  try { await navigator.clipboard.writeText(csv); setStatus(`Copied ${log.length} result(s) as CSV.`); }
+  catch { setStatus("Copy failed. Your browser blocked clipboard access."); }
+}
+
+function selectSeg(segId, attr, value) {
+  document.querySelectorAll(`#${segId} button`).forEach((b) => b.classList.toggle("on", b.dataset[attr] === value));
+}
+
+$("testSeg").addEventListener("click", (e) => {
+  const v = e.target.dataset?.test; if (!v || v === test) return;
+  test = v; selectSeg("testSeg", "test", v);
+  $("instructions").textContent = TESTS[test].text;
+  clearMeasurement();
+});
+$("camSeg").addEventListener("click", (e) => {
+  const v = e.target.dataset?.cam; if (!v || v === facing) return;
+  facing = v; selectSeg("camSeg", "cam", v);
+  if (running) startCamera();
+});
+$("startBtn").addEventListener("click", startCamera);
+$("baselineBtn").addEventListener("click", setBaseline);
+$("resetBtn").addEventListener("click", () => { max2d = max3d = 0; render(); });
+$("logBtn").addEventListener("click", saveResult);
+$("copyBtn").addEventListener("click", copyCSV);
+$("clearBtn").addEventListener("click", () => { log = []; saveLog(); renderLog(); });
+
+if (!navigator.mediaDevices?.getUserMedia) {
+  setStatus("This browser can't access the camera. Open the page over HTTPS in Safari.");
+  $("startBtn").disabled = true;
+}
+$("instructions").textContent = TESTS[test].text;
+renderLog();
+</script>
+</body>
+</html>
